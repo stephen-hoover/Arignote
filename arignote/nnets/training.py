@@ -474,8 +474,12 @@ class SupervisedTraining(object):
                 epoch_start_time = datetime.now()
 
                 for minibatch_index, train_batch in enumerate(data.iter_epoch()):
+                    if minibatch_index == 0:
+                        log.debug("Epoch {}, batch {} has loss "
+                                  "{}".format(self.epoch, minibatch_index, self.last_training_loss))
+                        log.debug("Predictions vs actual: \n{}, {}\n-------".format(
+                            classifier.predict_proba(train_batch[0][:5]), train_batch[1][:5]))
                     self.iter += 1  # Iteration number
-                    self.examples_seen += train_batch[0].shape[0]
 
                     these_examples, these_labels = augmentation(train_batch[0], train_batch[1],
                                                                 epoch=self.epoch,
@@ -485,8 +489,7 @@ class SupervisedTraining(object):
                     # and simultaneously updates the network's weights.
                     self.last_training_loss = float(self.train_func(these_examples, these_labels))
                     self.train_loss.append((self.iter, self.last_training_loss))
-                    #log.debug("Epoch {}, batch {} has loss {}".format(self.epoch, minibatch_index, self.last_training_loss))
-                    #log.debug("Predictions vs actual: {}, {}".format(classifier.predict_proba(train_batch[0][:5]), train_batch[1][:5]))
+                    self.examples_seen += train_batch[0].shape[0]
 
                     if (self.iter + 1) % validation_frequency == 0:
                         is_best = self._validate(data, valid, test, minibatch_index)
