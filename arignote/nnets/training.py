@@ -17,20 +17,13 @@ import theano
 import theano.tensor as T
 
 from ..data import files
+from ..image import augment
 from ..nnets import sgd_updates
 from ..util import misc
 from ..util import netlog
 
 
 log = netlog.setup_logging("nnet_training", level="INFO")
-
-
-def no_augmentation(x, y=None, **kwargs):
-    """If the trainer isn't supplied a function for data augmentation, use this blank function instead."""
-    if y is None:
-        return x
-    else:
-        return x, y
 
 
 def format_cost(name, val):
@@ -150,8 +143,11 @@ class UnsupervisedLayerwiseTraining(object):
 
         self.compile(classifier)
 
+        # Allow for `augmentation` to be not given, given as a single function, or
+        # given as a list of functions to be applied one after the other.
         if augmentation is None:
-            augmentation = no_augmentation
+            augmentation = augment.no_augmentation
+        augmentation = augment.augmentation_pipeline(*misc.as_list(augmentation))
 
         # Use validation frequency in nearest number of iterations.
         validation_frequency = self.validation_frequency // self.batch_size
@@ -445,8 +441,11 @@ class SupervisedTraining(object):
         self.compile(classifier, features=misc.get_tensor_type_from_data(sample_x, "features"),
                      targets=misc.get_tensor_type_from_data(sample_y, "targets"))
 
+        # Allow for `augmentation` to be not given, given as a single function, or
+        # given as a list of functions to be applied one after the other.
         if augmentation is None:
-            augmentation = no_augmentation
+            augmentation = augment.no_augmentation
+        augmentation = augment.augmentation_pipeline(*misc.as_list(augmentation))
 
         # Use validation frequency in nearest number of iterations.
         if self.validation_frequency is None:

@@ -18,6 +18,15 @@ from ..util import netlog
 log = netlog.setup_logging("image_augment", level="INFO")
 
 
+def no_augmentation(x, y=None, epoch=0, rng=None, **kwargs):
+    """If the trainer isn't supplied a function for data augmentation,
+    use this blank function instead."""
+    if y is None:
+        return x
+    else:
+        return x, y
+
+
 flip_transforms = [np.fliplr, lambda x: x]
 rot_transforms = [lambda x: np.rot90(x, 1),
                   lambda x: np.rot90(x, 2),
@@ -28,6 +37,18 @@ def random_transformation(X, rng):
     flipped_img = rng.choice(flip_transforms)(X.reshape([size, size]))
     rot_img = rng.choice(rot_transforms)(flipped_img)
     return rot_img.flatten()
+
+
+def augmentation_pipeline(*augment_funcs):
+    """Takes an arbitrary number of functions with input (X, y, epoch, rng) and output (X, y),
+    and returns a single function with the same signature which applies the input
+    functions in order."""
+    def augmentation_func(train_x, train_y, epoch, rng):
+        for func in augment_funcs:
+            train_x, train_y = func(train_x, train_y, epoch=epoch, rng=rng)
+        return train_x, train_y
+
+    return augmentation_func
 
 
 def alter_training_minibatch(train_x, train_y, epoch, rng):
