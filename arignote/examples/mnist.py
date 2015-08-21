@@ -80,8 +80,8 @@ def fit_mnist_mlp(checkpoint=None):
 def fit_mnist_conv(checkpoint=None):
     """Train a convolutional neural network using MNIST data.
 
-    (3x3)x32 - 400 - 400 - 10: 1.16% error
-    (3x3)x32 - (maxpool 2) - (2x2)x32 - (2x2)x32 - (maxpool2) - 400 - 400 - 10 : 0.77% error
+    (3x3)x32 - (maxpool 2) - (2x2)x32 - (2x2)x32 - (maxpool2) - 400 - 400 - 10 :
+        Trains to 0.71% error after 148 epochs.
     """
     batch_size = 128  # Let the Readers know how many images to supply with each epoch.
 
