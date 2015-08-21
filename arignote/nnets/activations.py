@@ -39,7 +39,7 @@ def get_activation_func(activation):
             activation_func = tanh
         elif activation == "abstanh":
             activation_func = abs_tanh
-        elif activation == "sig":
+        elif activation in ["sig", "sigmoid"]:
             activation_func = sigmoid
         elif activation in ["rec", "relu"]:
             activation_func = rectify

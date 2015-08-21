@@ -145,21 +145,75 @@ def define_mlp(n_classes, n_hidden, dropout_p, activation="relu", l1_reg=0, l2_r
 
 
 class NNClassifier(object):
+    r"""A neural net to be used for a classification task.
+
+    The classification network is built from individual layers.
+    Compilation doesn't happen until necessary at training time.
+    This object can be pickled and unpickled; the entire state
+    of the object will be stored.
+
+    .. note:: After unpickling, the network will need to be compiled
+        (either through `fit` or by calling `compile` directly)
+        before it can be used.
+
+    Parameters
+    ----------
+    layer_defs : list
+        Definition of the network layers. This should be a list of lists.
+    name : str, optional
+        Name of this neural network, for display purposes
+    n_in : int or tuple, optional
+        The shape of the input features. If supplied here, we'll initialize
+        the network layers now. Otherwise, this will be inferred from the
+        data supplied during a call to `fit` and the network layers will be
+        constructed at that time.
+    batch_size : int, optional
+        Batch size to be used for training. Only needed now if `n_in` is also
+        supplied -- it can be used to optimize convolutional layers on the CPU.
+    random_state : int or np.random.RandomState, optional
+        RNG or seed for a RNG. If not supplied, will be randomly initialized.
+
+    Other Parameters
+    ----------------
+    stored_network : str, optional
+        Filename of pickled network. If supplied, initialize this object's
+        layers from weights stored in the `stored_network`. The pickled
+        network must have the same architecure as this network.
+    theano_rng : theano.tensor.shared_randomstreams import RandomStreams, optional
+        Symbolic random number generator. If not supplied, will be initialized
+        from the numpy RNG.
+
+    Attributes
+    ----------
+    predict_proba : function
+        Input batch of examples, output probabilities of each class for each example.
+        Compiled by theano.
+    predict : function
+        Input batch of examples, output class with maximum probability for each example.
+        Compiled by theano.
+    layers_train : list
+        List of `Layer` objects. Potentially non-deterministic; used for training.
+    layers_inf : list
+        Network used for inference, deterministic. Identical architecture to and
+        shares parameters with `layers_train`.
+    params : list
+        All trainable parameters (theano shared variables) from this network
+    param_update_rules : list
+        All special update rules, one dictionary per parameter in `params`
+    n_params : int
+        Total number of individual trainable parameters
+    trainer : training.SupervisedTraining
+        Object used to train this network; present after calling `fit`
+
+    Examples
+    --------
+    >>> layers = [["FCLayer", {"name": "fc1", "n_units": 100, "activation": "relu", "l2": 0.001}],
+                  ["DropoutLayer", {"name": "DO-fc1", "dropout_p": 0.5}],
+                  ["ClassificationOutputLayer", {"name": "output", "n_classes": 10}]]
+    >>> cls = NNClassifier(layers, name="Small example net", random_state=42)
     """
-    This is a neural net to be used for a classification task. It's built from
-    individual layers.
-
-    **Optional Parameters**
-
-    * `n_in` <int or tuple|None>
-        The shape of the input features. If supplied here, we'll initialize the network layers
-        now. Otherwise, this will be inferred from the data supplied during the `fit`
-        and the network layers will be constructed at that time.
-
-    * `stored_network` <str|None>
-    """
-    def __init__(self, layer_defs, n_in=None, name="Neural Network Classifier",
-                 batch_size=None, stored_network=None, random_state=None, theano_rng=None):
+    def __init__(self, layer_defs, name="Neural Network Classifier", n_in=None,
+                 batch_size=None, random_state=None, stored_network=None, theano_rng=None):
         self.input = None
         self.trainer = None
         self.n_in = n_in
@@ -180,42 +234,41 @@ class NNClassifier(object):
         # Define these Theano functions during the `compile` stage.
         self.p_y_given_x = None
         self.predict_proba = None
+        self.predict = None
 
         if self.n_in is not None:
-            self._build_network(self.n_in)
+            self._build_network(self.n_in, batch_size)
 
     def _build_network(self, n_in, batch_size=None):
         """Create and store the layers of this network, along with auxiliary information such
         as lists of the trainable parameters in the network."""
-        self.n_in = misc.as_list(n_in)  # Make sure that `n_in` is a list or tuple.
+        self.n_in = np.atleast_1d(n_in)  # Make sure that `n_in` is a list or tuple.
         if batch_size is not None:
             self.batch_size = batch_size
 
         # These next attributes are creating and storing Theano shared variables.
         # The Layers contain shared variables for all the trainable parameters,
         # and the regularization parameters are sums and products of the parameters.
-        self.layers_train = self.build_layers_train(self.layer_defs, self.stored_network)
-        self.layers_inf = self.duplicate_layer_stack(self.layers_train)
+        self.layers_train = self._build_layers_train(self.layer_defs, self.stored_network)
+        self.layers_inf = self._duplicate_layer_stack(self.layers_train)
 
-        self.l1, self.l2_sqr = self.get_regularization(self.layers_train)
+        self.l1, self.l2_sqr = self._get_regularization(self.layers_train)
 
         # Collect the trainable parameters from each layer and arrange them into lists.
-        self.params, self.param_update_rules, self.n_params = self.arrange_parameters(self.layers_train)
+        self.params, self.param_update_rules, self.n_params = self._arrange_parameters(self.layers_train)
         log.info("This network has {} trainable parameters.".format(self.n_params))
 
-    def arrange_parameters(self, layers):
+    def _arrange_parameters(self, layers):
         """Extract all trainable parameters and any special update rules from each Layer.
         Also calculate the total number of trainable parameters in this network.
 
-        **Returns**
+        Returns
+        -------
 
         A 3-tuple of (parameters, parameter update rules, and number of parameters).
         The first two elements are lists of equal length, and the number of parameters is
         an integer.
 
-        **Modifies**
-
-        None
         """
         # The parameters of the model are the parameters of the two layers it is made out of.
         params, param_update_rules = [], []
@@ -229,21 +282,18 @@ class NNClassifier(object):
 
         return params, param_update_rules, n_params
 
-    def get_regularization(self, layers):
+    def _get_regularization(self, layers):
         """Find the L1 and L2 regularization terms for this net. Combine the L1 and L2
         terms from each Layer. Use the regularization strengths stored in each Layer.
         Note that the value returned is `l2_sqr`, the sum of squares of all weights,
         times the lambda parameter for each Layer.
 
-        **Returns**
-
-        A 2-tuple of (l1, l2_sqr). The `l1` is the sum of absolute values of weights times
-        lambda_l1 from each Layer, and `l2_sqr` is the sum of squares of weights times
-        lambda_l2 from each Layer.
-
-        **Modifies**
-
-        None
+        Returns
+        -------
+        l1, l2_sqr : theano.shared
+            The `l1` is the sum of absolute values of weights times
+            lambda_l1 from each Layer, and `l2_sqr` is the sum of squares
+            of weights times lambda_l2 from each Layer.
         """
         # L1 norm; one regularization option is to require the L1 norm to be small.
         l1 = np.sum([ly.l1 for ly in layers if ly.l1 is not None])
@@ -260,7 +310,7 @@ class NNClassifier(object):
 
         return l1, l2_sqr
 
-    def build_layers_train(self, layer_defs, stored_network=None):
+    def _build_layers_train(self, layer_defs, stored_network=None):
         """Creates a stack of neural network layers from the input layer definitions.
         This network is intended for use in training.
 
@@ -339,7 +389,7 @@ class NNClassifier(object):
 
         return layer_objs
 
-    def duplicate_layer_stack(self, layer_stack):
+    def _duplicate_layer_stack(self, layer_stack):
         """Creates a stack of neural network Layers identical to the input `layer_stack`, and
         with weights tied to those Layers. This is useful to, for example, create a parallel
         network to be used for inference.
@@ -368,34 +418,29 @@ class NNClassifier(object):
 
         return layer_objs
 
-    def get_loss(self, name, targets=None, inference=False, regularized=None):
-        """ Return a loss function.
+    def _get_loss(self, name, targets=None, inference=False, regularized=None):
+        """Return a loss function.
 
-        **Parameters**
-
-        * `name` <str>
-            Name of the loss function. One of ["nll", "error"]. May also be a list, in which
-            case this function will return a list of loss functions.
-
-        **Optional Parameters**
-
-        * `targets` <theano symbolic variable|None>
+        Parameters
+        ----------
+        name : str
+            Name of the loss function. One of ["nll", "error"]. May
+            also be a list, in which case this function will return
+            a list of loss functions.
+        targets : theano symbolic variable, optional
             If None, will be initialized to a T.imatrix named "y".
-        * `inference` <bool|False>
-            If True, return the loss from the inference network (for e.g. model validation).
-            Otherwise use the training network.
-        * `regularized` <bool|None>
-            Add regularization parameters to the loss? Default to True if `inference` is False
-            and False if `inference` is True.
+        inference : bool, optional
+            If True, return the loss from the inference network (for
+            e.g. model validation). Otherwise use the training network.
+        regularized : bool, optional
+            Add regularization parameters to the loss? Default to True
+            if `inference` is False and False if `inference` is True.
 
-        **Returns**
-
-        A Theano symbolic variable representing the requested loss, or a list of symbolic
-        variables if `name` is list-like.
-
-        **Raises**
-
-        `ValueError` if the loss is not recognized.
+        Returns
+        -------
+        Theano symbolic variable
+            Represents the requested loss, or a list of symbolic
+            variables if `name` is list-like.
         """
         if self.input is None:
             raise RuntimeError("Compile this network before getting a loss function.")
@@ -405,7 +450,7 @@ class NNClassifier(object):
 
         # If we got a list as input, return a list of loss functions.
         if misc.is_listlike(name):
-            return [self.get_loss(n, targets=targets, inference=inference, regularized=regularized)
+            return [self._get_loss(n, targets=targets, inference=inference, regularized=regularized)
                     for n in name]
 
         input_name = name
@@ -431,7 +476,16 @@ class NNClassifier(object):
         return loss
 
     def compile(self, input, recompile=False):
+        """Compile the theano computation graphs and functions
+        associated with this network.
 
+        Parameters
+        ----------
+        input : Theano symbolic variable
+            The input to the network
+        recompile : bool, optional
+            If False, will not recompile an already-compiled network.
+        """
         if self.input is not None:
             if recompile:
                 log.warning("Recompiling and resetting the existing network.")
@@ -458,11 +512,12 @@ class NNClassifier(object):
         # Allow predicting on fresh features.
         self.p_y_given_x = self.layers_inf[-1].p_y_given_x
         self.predict_proba = theano.function(inputs=[self.input], outputs=self.p_y_given_x)
+        self.predict = theano.function(inputs=[self.input], outputs=self.layers_inf[-1].y_pred)
 
         # Now that we've compiled the network, we can restore a previous
         # Theano RNG state, if any. The "pickled_theano_rng" will only be
         # non-None if this object was unpickled.
-        self.set_theano_rng(self.pickled_theano_rng)
+        self._set_theano_rng(self.pickled_theano_rng)
         self.pickled_theano_rng = None
 
     def get_init_params(self):
@@ -471,21 +526,21 @@ class NNClassifier(object):
                     stored_network=self.stored_network)
 
     def set_trainable_params(self, inp, layers=None):
-        """Set the trainable parameters in this network from trainable parameters in an input.
+        """Set the trainable parameters in this network from trainable
+        parameters in an input.
 
-        **Parameters**
-
-        * `inp` <NNClassifier or string> : May be an existing NNClassifier, or a filename
+        Parameters
+        ----------
+        inp : NNClassifier or string
+            May be an existing NNClassifier, or a filename
             pointing to either a checkpoint or a pickled NNClassifier.
-
-        **Optional Parameters**
-
-        * `layers` <list of strings|None> : If provided, set parameters only for the layers
-            with these names, using layers with corresponding names in the input.
+        layers : list of strings, optional
+            If provided, set parameters only for the layers with these
+            names, using layers with corresponding names in the input.
         """
         # Get the input and check its type.
-        # If the input is a string, try reading it first as a checkpoint file, and then
-        # as a NNClassifier pickle.
+        # If the input is a string, try reading it first as a
+        # checkpoint file, and then as a NNClassifier pickle.
         if isinstance(inp, six.string_types):
             try:
                 inp = files.checkpoint_read(inp, get_metadata=False)
@@ -501,11 +556,19 @@ class NNClassifier(object):
 
             if ly.has_trainable_params:
                 ly.set_trainable_params(inp.get_layer(ly.name))
-                log.debug("Set trainable parameters in layer {} from input weights.".format(ly.name))
+                log.debug("Set trainable parameters in layer {} "
+                          "from input weights.".format(ly.name))
 
     def get_layer(self, name, inf=False):
-        """Returns the Layer object with the given name. If `inf` is True, search the
-        inference Layers, otherwise search the training Layers.
+        """Returns the Layer object with the given name.
+
+        Parameters
+        ----------
+        name : str
+            Name of the desired Layer object
+        inf : bool, optional
+            If True, search the inference (deterministic) Layers,
+            otherwise search the training Layers.
         """
         layers = self.layers_inf if inf else self.layers_train
         for ly in layers:
@@ -516,16 +579,17 @@ class NNClassifier(object):
                              "network \"{}\".".format(name, self.name))
 
     def set_rng(self, rng, theano_rng=None):
-        """Set the pseudo-random number generator in this object and in all Layers of this object.
-        The `rng` input may be either a numpy.random.RandomState, the result of a `get_state`
-        call on such an object, or a seed.
+        """Set the pseudo-random number generator in this object
+        and in all Layers of this object.
 
-        **Returns**
+        Parameters
+        ----------
+        rng : int or numpy.random.RandomState or `RandomState.get_state()`
+        theano_rng : theano.tensor.shared_randomstreams import RandomStreams, optional
+            If not supplied, will be initialized from the `rng`
 
-        None
-
-        **Modifies**
-
+        Modifies
+        --------
         `self.rng` and `self.theano_rng` will be set with RNGs.
         Each Layer in `self.layers_train` and `self.layers_inf` will have their RNGs set
         to be the same objects as this network's new RNGs.
@@ -555,9 +619,10 @@ class NNClassifier(object):
             ly.rng = self.rng
             ly.theano_rng = self.theano_rng
 
-    def set_theano_rng(self, rng_state=None):
+    def _set_theano_rng(self, rng_state=None):
         """Set the current state of the theano_rng from a pickled state.
-        Important: This can only be done after compiling the network! The Theano
+
+        .. note:: This can only be done after compiling the network! The Theano
         RNG needs to see where it fits in to the graph.
 
         http://deeplearning.net/software/theano/tutorial/examples.html#copying-random-state-between-theano-graphs
@@ -567,13 +632,17 @@ class NNClassifier(object):
                 su[0].set_value(input_su)
 
     def __getstate__(self):
-        """ Preserve the object's state. Don't try to pickle the Theano objects directly;
-        Theano changes quickly. Store the values of layer weights as arrays instead
-        (handled in the Layers' __getstate__ functions) and
+        """Preserve the object's state.
+
+        Don't try to pickle the Theano objects directly;
+        Theano changes quickly. Store the values of layer weights
+        as arrays instead (handled in the Layers' __getstate__ functions)
+        and clear all compiled functions and symbolic variables.
+        Those will need to be re-compiled before the network can be used again.
         """
         state = self.__dict__.copy()
 
-        state["p_y_given_x"], state["predict_proba"] = None, None
+        state["p_y_given_x"], state["predict_proba"], state["predict"] = None, None, None
         state["l1"], state["l2_sqr"] = None, None
         state["params"], state["param_update_rules"] = None, None
         state["layers_inf"] = []  # This is redundant with `layers_train`; don't save both.
@@ -587,7 +656,7 @@ class NNClassifier(object):
         return state
 
     def __setstate__(self, state):
-        """ Allow unpickling from stored weights.
+        """Allow unpickling from stored weights.
         """
         self.__dict__.update(state)
 
@@ -597,19 +666,81 @@ class NNClassifier(object):
 
         # Rebuild everything we had to take apart before saving. Note that we'll
         # still need to call `compile` to make the network fully operational again.
-        self.layers_inf = self.duplicate_layer_stack(self.layers_train)
-        self.l1, self.l2_sqr = self.get_regularization(self.layers_train)
+        self.layers_inf = self._duplicate_layer_stack(self.layers_train)
+        self.l1, self.l2_sqr = self._get_regularization(self.layers_train)
 
         # Collect the trainable parameters from each layer and arrange them into lists.
-        self.params, self.param_update_rules, self.n_params = self.arrange_parameters(self.layers_train)
+        self.params, self.param_update_rules, self.n_params = self._arrange_parameters(self.layers_train)
 
-    def fit(self, X, y=None, n_epochs=None, valid=None, test=None, augmentation=None,
+    def fit(self, X, y=None, valid=None, test=None, n_epochs=None, augmentation=None,
             checkpoint=None, checkpoint_all=False, extra_metadata=None,
             sgd_type="adadelta", lr_rule=None,
             momentum_rule=None, sgd_max_grad_norm=None,
             batch_size=None, validation_frequency=None, validate_on_train=False,
             train_loss="nll", valid_loss="nll", test_loss=["error", "nll"]):
-        """Perform supervised training on the input data."""
+        """Perform supervised training on the input data.
+
+        When restoring a pickled `NNClassifier` object to resume training,
+        data, augmentation functions, and checkpoint locations must be
+        re-entered, but other parameters will be taken from the previously
+        stored training state. (The `n_epochs` may be re-supplied to alter
+        the number of epochs used, but will default to the previously
+        supplied `n_epochs`.)
+
+        Training may be stopped early by pressing ctrl-C.
+
+        Training data may be provided in either of the following formats:
+        - An array of (n_examples, n_features) in the first positional
+            argument (keyed by `X`), and an array of (n_examples, n_labels)
+            in the second positional argument (keyed by `y`)
+        - An object of type `readers.DataWithHoldoutParitions` or `readers.Data`
+            presented in the first positional argument
+
+        Validation data may be optionally supplied with the `valid` key
+        in one of the following formats (only if the training data were not
+        given as a `readers.DataWithHoldoutParitions` object):
+        - A tuple of (X, y), where `X` is an array of
+            (n_validation_examples, n_features) and `y` is an array of
+            (n_validation_examples, n_labels)
+        - A `readers.Data` object
+        - A float in the range [0, 1), in which case validation data will
+            be held out from the supplied training data (only if training
+            data were given as an array)
+
+        Test data may be optionally supplied with the `test` key, using the same
+        formats as for validation data.
+
+        Parameters
+        ----------
+        X, y, valid, test
+            See above for discussion of allowed input formats.
+        n_epochs : int
+            Train for this many epochs. (An "epoch" is one complete pass through
+            the training data.) Must be supplied unless resuming training.
+        augmentation : function, optional
+            Apply this function to each minibatch of training data.
+        checkpoint : str
+            Filename for storing network during training. If supplied,
+            Arignote will store the network after every epoch, as well
+            as storing the network with the best validation loss and
+            the final network. When using a checkpoint, the trainer
+            will restore the network with best validation loss at the
+            end of training.
+        sgd_type :
+
+        Other Paramters
+        ---------------
+        checkpoint_all : str
+            Keep the state of the network at every training step.
+            Warning: may use lots of hard drive space.
+        extra_metadata : dict
+            Store these keys with the pickled object.
+
+
+        Returns
+        -------
+        self : NNClassifier
+        """
         if batch_size is None:
             batch_size = self.batch_size
 
