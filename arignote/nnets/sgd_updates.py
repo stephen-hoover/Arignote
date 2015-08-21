@@ -14,18 +14,47 @@ log = netlog.setup_logging("nnets_sgd_updates", level="INFO")
 
 
 class Rule(object):
-    """
-    # Subtract 1e-4 every epoch until reaching 1e-3.
-    Rule("fixed", decrease_by=1e-4, interval=1, final_value=1e-3)
+    """Describes how a learning rate or momentum should change during training.
 
-    # Multiply by 0.5 every 10 epochs until reaching a value of 1e-4.
-    Rule("fixed", multiply_by=0.5, interval=10, final_value=1e-4)
+    Parameters
+    ----------
+    rule : {"const", "constant", "fixed", "stalled"}
+        Type of rule to apply
+    initial_value : float
+        Where to start the parameter
+    final_value : float, optional
+        Stop changing the parameter when it reaches this value.
+    decrease_by : float, optional
+        When changing this parameter, subtract this value from it.
+    multiply_by : float, optional
+        When changing this parameter, multiply by this value.
+        This is done after subtracting `decrease_by`.
+    interval : int, optional
+        Update the parameter after this many validations.
+        Typically, we validate once per epoch.
+        If a `schedule` is also provided, use the `interval` only
+        once the schedule is exhausted.
+    schedule : list of ints, optional
+        Alter the parameter at these set epochs.
 
-    # Multiply by 0.5 at epochs 15, 23, 30, and every 5 epochs after.
-    Rule("fixed", multiply_by=0.5, schedule=[15, 23, 30], interval=5)
+    Examples
+    --------
 
-    # Divide by 10 every time we go 5 epochs without an improvement.
-    Rule("stalled", multiply_by=0.1, interval=5)
+    Subtract 1e-4 every epoch until reaching 1e-3.
+
+    >>> Rule(rule="fixed", decrease_by=1e-4, interval=1, final_value=1e-3)
+
+    Multiply by 0.5 every 10 epochs until reaching a value of 1e-4.
+
+    >>> Rule(rule="fixed", multiply_by=0.5, interval=10, final_value=1e-4)
+
+    Multiply by 0.5 at epochs 15, 23, 30, and every 5 epochs after.
+
+    >>> Rule(rule="fixed", multiply_by=0.5, schedule=[15, 23, 30], interval=5)
+
+    Divide by 10 every time we go 5 epochs without an improvement.
+
+    >>> Rule(rule="stalled", multiply_by=0.1, interval=5)
     """
     valid_rules = ["const", "constant", "fixed", "stalled"]
 
