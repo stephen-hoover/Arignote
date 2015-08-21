@@ -23,9 +23,20 @@ log = netlog.setup_logging("nets", level="INFO")
 
 
 def define_logistic_regression(n_classes, l1_reg=0, l2_reg=0):
-    """
-    This function is a shortcut to build the list of layer definitions (a single layer,
+    """Shortcut to build the list of layer definitions (a single layer,
     in this case) for a logistic regression classifier.
+
+    Parameters
+    ----------
+    n_classes : int
+        Number of classes to calculate probabilities for
+    l1_reg, l2_reg : float, optional
+        L1 and L2 regularization strengths
+
+    Returns
+    -------
+    list
+        Layer definitions suitable for input to a `NNClassifier`
     """
     # This network is only an output layer.
     layer_defs = [["ClassificationOutputLayer", {"n_classes": n_classes,
@@ -35,9 +46,68 @@ def define_logistic_regression(n_classes, l1_reg=0, l2_reg=0):
 
 def define_cnn(n_classes, input_image_shape, n_kernels, filter_scale, poolsize,
                n_hidden, dropout_p, activation="relu", l1_reg=0, l2_reg=0):
-    """
-    This function is a shortcut to build the list of layer definitions for
-    a convolutional neural network.
+    """Shortcut to build the list of layer definitions for
+    a convolutional neural network
+
+    Defines a series of convolutional layers, followed by max-pooling layers,
+    after which a multi-layer perceptron calculates the probabilities of
+    membership in each class.
+
+    Parameters
+    ----------
+    n_classes : int
+        Number of classes to calculate probabilities for
+    input_image_shape : list or tuple
+        Shape of input image, (n_channels, n_pixels_x, n_pixels_y)
+    n_kernels : list of ints
+        Number of convolutional kernels in each convolutional layer
+    filter_scale : list of ints
+        Size of (square) filters in each convolutional layer.
+        Must be the same length as `n_kernels`.
+    poolsize : list of ints
+        Size of (square) non-overlapping max-pooling kernel to be
+        applied after each convolutional layer (may be zero, meaning
+        no max pooling after that layer). Must be the same length
+        as `n_kernels`.
+    n_hidden : list of ints
+        Number of units in each hidden layer
+    dropout_p : float or list of floats
+        Dropout fraction for input and each hidden layer. If a single float,
+        this dropout fraction will be applied to every layer.
+    activation : {"relu", "prelu", "sigmoid", "tanh", "abstanh", "linear"}
+        Activation function to use for all layers
+    l1_reg, l2_reg : float, optional
+        L1 and L2 regularization strengths for all layers
+
+    Returns
+    -------
+    list
+        Layer definitions suitable for input to a `NNClassifier`
+
+    Examples
+    --------
+    >>> layers = define_cnn(10, (28, 28), n_kernels=[32, 32], filter_scale=[4, 3],
+    >>>                     poolsize=[0, 2], n_hidden=[400], dropout_p=0.2)
+    >>> print(layers)
+    [['InputImageLayer', {'n_images': 1, 'n_pixels': [28, 28], 'name': 'input'}],
+     ['DropoutLayer', {'dropout_p': 0.2, 'name': 'DO-input'}],
+     ['ConvLayer',
+      {'activation': 'relu',
+       'filter_shape': (4, 4),
+       'n_output_maps': 32,
+       'name': 'conv0'}],
+     ['DropoutLayer', {'dropout_p': 0.2, 'name': 'DO-conv0'}],
+     ['ConvLayer',
+      {'activation': 'relu',
+       'filter_shape': (3, 3),
+       'n_output_maps': 32,
+       'name': 'conv1'}],
+     ['MaxPool2DLayer', {'name': 'maxpool1', 'pool_shape': (2, 2)}],
+     ['DropoutLayer', {'dropout_p': 0.2, 'name': 'DO-conv1'}],
+     ['FCLayer',
+      {'activation': 'relu', 'l1': 0, 'l2': 0, 'n_units': 400, 'name': 'fc0'}],
+     ['DropoutLayer', {'dropout_p': 0.2, 'name': 'DO-fc0'}],
+     ['ClassificationOutputLayer', {'l1': 0, 'l2': 0, 'n_classes': 10}]]
     """
     # Assume input images are 2D. If the `input_image_shape` is 3 elements,
     # the first element is the number of images in the input. Otherwise, assume
@@ -47,7 +117,7 @@ def define_cnn(n_classes, input_image_shape, n_kernels, filter_scale, poolsize,
     elif len(input_image_shape) == 2:
         input_image_shape = [1] + list(input_image_shape)
     else:
-        raise ValueError("The input image shape must be (n_images, n_pixels_x, n_pixels_y).")
+        raise ValueError("The input image shape must be (n_channels, n_pixels_x, n_pixels_y).")
 
     try:
         # Make sure that `n_hidden` is a list.
@@ -103,8 +173,37 @@ def define_cnn(n_classes, input_image_shape, n_kernels, filter_scale, poolsize,
 
 
 def define_mlp(n_classes, n_hidden, dropout_p, activation="relu", l1_reg=0, l2_reg=0):
-    """
-    This function is a shortcut to create a multi-layer perceptron classifier.
+    """Shortcut to create a multi-layer perceptron classifier
+
+    Parameters
+    ----------
+    n_classes : int
+        Number of classes to calculate probabilities for
+    n_hidden : list of ints
+        Number of units in each hidden layer
+    dropout_p : float or list of floats
+        Dropout fraction for input and each hidden layer. If a single float,
+        this dropout fraction will be applied to every layer.
+    activation : {"relu", "prelu", "sigmoid", "tanh", "abstanh", "linear"}
+        Activation function to use for all layers
+    l1_reg, l2_reg : float, optional
+        L1 and L2 regularization strengths for all layers
+
+    Returns
+    -------
+    list
+        Layer definitions suitable for input to a `NNClassifier`
+
+    Examples
+    --------
+    >>> layers = define_mlp(10, [400, 400], [0.4, 0.25, 0.25], "prelu", l2_reg=1e-4)
+    >>> print(layers)
+    [['DropoutLayer', {'dropout_p': 0.4, 'name': 'DO-input'}],
+     ['FCLayer', {'activation': 'prelu', 'l1': 0, 'l2': 0.0001, 'n_units': 400, 'name': 'fc0'}],
+     ['DropoutLayer', {'dropout_p': 0.25, 'name': 'DO-fc0'}],
+     ['FCLayer', {'activation': 'prelu', 'l1': 0, 'l2': 0.0001, 'n_units': 400, 'name': 'fc1'}],
+     ['DropoutLayer', {'dropout_p': 0.25, 'name': 'DO-fc1'}],
+     ['ClassificationOutputLayer', {'l1': 0, 'l2': 0.0001, 'n_classes': 10, 'name': 'output'}]]
     """
     try:
         # Make sure that `n_hidden` is a list.
@@ -672,12 +771,14 @@ class NNClassifier(object):
         # Collect the trainable parameters from each layer and arrange them into lists.
         self.params, self.param_update_rules, self.n_params = self._arrange_parameters(self.layers_train)
 
-    def fit(self, X, y=None, valid=None, test=None, n_epochs=None, augmentation=None,
-            checkpoint=None, checkpoint_all=False, extra_metadata=None,
+    def fit(self, X, y=None, valid=None, test=None,
+            n_epochs=None, batch_size=None,
+            augmentation=None, checkpoint=None,
             sgd_type="adadelta", lr_rule=None,
             momentum_rule=None, sgd_max_grad_norm=None,
-            batch_size=None, validation_frequency=None, validate_on_train=False,
-            train_loss="nll", valid_loss="nll", test_loss=["error", "nll"]):
+            train_loss="nll", valid_loss="nll", test_loss=["error", "nll"],
+            validation_frequency=None, validate_on_train=False,
+            checkpoint_all=False, extra_metadata=None,):
         """Perform supervised training on the input data.
 
         When restoring a pickled `NNClassifier` object to resume training,
@@ -717,29 +818,64 @@ class NNClassifier(object):
         n_epochs : int
             Train for this many epochs. (An "epoch" is one complete pass through
             the training data.) Must be supplied unless resuming training.
+        batch_size : int
+            Number of examples in a minibatch. Must be provided if was
+            not given during object construction.
         augmentation : function, optional
             Apply this function to each minibatch of training data.
-        checkpoint : str
+        checkpoint : str, optional
             Filename for storing network during training. If supplied,
             Arignote will store the network after every epoch, as well
             as storing the network with the best validation loss and
             the final network. When using a checkpoint, the trainer
             will restore the network with best validation loss at the
             end of training.
-        sgd_type :
+        sgd_type : {"adadelta", "nag", "adagrad", "rmsprop", "sgd"}
+            Choice for stochastic gradient descent algorithm to use in training
+        lr_rule, momentum_rule : dict of sgd_updates.Rule params, optional
+            Use these dictionaries of parameters to create Rule objects
+            which describe how to alter the learning rate and momentum
+            during training.
+        train_loss, valid_loss : {"nll", "error"}
+            Loss function for training and validation. With a custom
+            output layer, may also be the name of a function which returns
+            a theano symbolic variable giving the cost.
+            ("nll" = "negative log likelihood")
+        test_loss : str or list
+            May be any of the loss functions usable for training, or
+            a list of such functions.
 
-        Other Paramters
-        ---------------
-        checkpoint_all : str
+        Other Parameters
+        ----------------
+        sgd_max_grad_norm : float, optional
+            If provided, scale gradients during training so that the norm
+            of all gradients is no more than this value.
+        validation_frequency : int, optional
+            Check the validation loss after training on this many examples.
+            Defaults to validating once per epoch.
+        validate_on_train : bool, optional
+            If set, calculate validation loss (using the deterministic
+            network) on the training set as well.
+        checkpoint_all : str, optional
             Keep the state of the network at every training step.
             Warning: may use lots of hard drive space.
-        extra_metadata : dict
+        extra_metadata : dict, optional
             Store these keys with the pickled object.
-
 
         Returns
         -------
         self : NNClassifier
+
+        Examples
+        --------
+        >>> lr_rule = {"rule": "stalled", "initial_value": 0.1, "multiply_by": 0.25, "interval": 5}
+        >>> momentum_rule = {"rule": "stalled", "initial_value": 0.7, "decrease_by": -0.1,
+                             "final_value": 0.95, "interval": 5}
+        >>> mnist_data = files.read_pickle(sample_data.mnist)
+        >>> classifier.fit(mnist_data[0], n_epochs=50, valid=mnist_data[1], test=mnist_data[2],
+                           augmentation=None, checkpoint=checkpoint, sgd_type="nag",
+                           lr_rule=lr_rule, momentum_rule=momentum_rule, batch_size=128,
+                           train_loss="nll", valid_loss="nll", test_loss=["nll", "error"])
         """
         if batch_size is None:
             batch_size = self.batch_size
