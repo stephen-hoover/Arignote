@@ -476,8 +476,11 @@ class SupervisedTraining(object):
                     if minibatch_index == 0:
                         log.debug("Epoch {}, batch {} has loss "
                                   "{}".format(self.epoch, minibatch_index, self.last_training_loss))
+                        sample_x, sample_y = augmentation(train_batch[0][:5], train_batch[1][:5],
+                                                          epoch=self.epoch,
+                                                          rng=classifier.rng)
                         log.debug("Predictions vs actual: \n{}, {}\n-------".format(
-                            classifier.predict_proba(train_batch[0][:5]), train_batch[1][:5]))
+                            classifier.predict_proba(sample_x), sample_y))
                     self.iter += 1  # Iteration number
 
                     these_examples, these_labels = augmentation(train_batch[0], train_batch[1],
