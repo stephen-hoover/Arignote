@@ -6,10 +6,10 @@ from __future__ import division
 __author__ = 'shoover'
 
 import collections
-import six
 
 
 import numpy as np
+import six
 import theano
 from theano import tensor as T
 

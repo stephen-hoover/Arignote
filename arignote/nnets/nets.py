@@ -4,9 +4,9 @@ from __future__ import division, print_function
 
 import collections
 import inspect
-import six
 
 import numpy as np
+import six
 import theano
 import theano.tensor as T
 from theano.tensor.shared_randomstreams import RandomStreams

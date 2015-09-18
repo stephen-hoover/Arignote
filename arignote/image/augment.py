@@ -8,10 +8,6 @@ __author__ = 'shoover'
 
 
 import numpy as np
-from skimage.io import imread
-
-
-from . import process
 
 
 from ..util import netlog
@@ -70,6 +66,7 @@ def alter_training_minibatch(train_x, train_y, epoch, rng):
     """
     train_x = [random_transformation(x, rng) for x in train_x]
     return train_x, train_y
+
 
 def create_shift_augment(max_shift_x, max_shift_y=None):
     """A factory function which creates and returns a data augmentation function. The returned

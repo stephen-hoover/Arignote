@@ -3,22 +3,16 @@ This module processes images and makes them suitable to use as neural network in
 """
 from __future__ import division
 
-import gzip
-import pickle
-
 
 import numpy as np
-from skimage.io import imread
-from skimage import transform
-from scipy import linalg
-from sklearn.utils import check_array, as_float_array
-from sklearn.base import TransformerMixin, BaseEstimator
-from scipy.misc import imresize
-
+try:
+    from scipy.misc import imresize
+    has_scipy = True
+except ImportError:
+    has_scipy = False
 
 from ..util import misc
 from ..util import netlog
-from ..data import files
 log = netlog.setup_logging("image_process", level="INFO")
 
 
@@ -103,6 +97,11 @@ def process_images(plk_images, new_scale=32, means=None, stds=None):
     A modified list of arrays of the same length as `plk_images`.
     The list has the same length and order as `plk_images`.
     """
+    try:
+        from skimage import transform
+    except ImportError:
+        print("This function uses the `transform` function from scikit-image.")
+        raise
     output_images = []
     for image in plk_images:
 
@@ -150,7 +149,7 @@ def create_data_shifts(input_x, input_y, scale):
     return shift_x, shift_y, image_means, image_std
 
 
-class ZCA(BaseEstimator, TransformerMixin):
+class ZCA:
     """ Copied from https://gist.github.com/duschendestroyer/5170087
     which itself was based off
     http://ufldl.stanford.edu/wiki/index.php/Implementing_PCA/Whitening
@@ -160,18 +159,17 @@ class ZCA(BaseEstimator, TransformerMixin):
         self.copy = copy
 
     def fit(self, X, y=None):
-        X = check_array(X)
-        X = as_float_array(X, copy=self.copy)
+        X = np.asarray(X)
         self.mean_ = np.mean(X, axis=0)
         X -= self.mean_
         sigma = np.dot(X.T, X) / X.shape[1]
-        U, S, V = linalg.svd(sigma)
+        U, S, V = np.linalg.svd(sigma)
         tmp = np.dot(U, np.diag(1 / np.sqrt(S + self.regularization)))
         self.components_ = np.dot(tmp, U.T)
         return self
 
     def transform(self, X):
-        X = check_array(X)
+        X = np.asarray(X)
         X_transformed = X - self.mean_
         X_transformed = np.dot(X_transformed, self.components_.T)
         return X_transformed
@@ -185,6 +183,9 @@ def shift_image(img, scale):
     ways in order to get 3 different "shifts" of the
     image.
     """
+    if not has_scipy:
+        raise ImportError("This function requires scipy.")
+
     if img.shape[0] > img.shape[1]:
         img = np.rot90(img)
 

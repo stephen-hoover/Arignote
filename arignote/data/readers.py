@@ -4,7 +4,6 @@ This module reads and iterates over data, making it available for training.
 from __future__ import division
 
 import abc
-import six
 import threading
 
 import numpy as np
@@ -13,6 +12,7 @@ try:
 except ImportError:
     # No pandas; we can't read HDF5 files.
     pd = None
+import six
 import theano
 
 from ..util import misc

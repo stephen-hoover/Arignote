@@ -10,9 +10,9 @@ import abc
 from datetime import datetime, timedelta
 import os
 import time
-import six
 
 import numpy as np
+import six
 import theano
 import theano.tensor as T
 

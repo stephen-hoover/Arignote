@@ -30,6 +30,7 @@ python setup.py develop
 - Tested and known to work with Python 3.4 and 2.7.10
 - theano
 - numpy
+- six
 
 Optional requirements
 - pandas (needed to read HDF5 files)
