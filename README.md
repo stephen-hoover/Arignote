@@ -14,6 +14,39 @@ Warning -- this library currently has no tests (so is undoubtedly broken in some
 The code is also rough in many places. At this time, Arignote only supports feed-forward
 networks; recurrent neural networks may or may not be added in the future.
 
+## Example of use
+
+The following example instantiates and trains a simple multi-layer perceptron on the MNIST data.
+
+```
+from arignote.nnets import nets
+from arignote.data import files
+from arignote import sample_data
+
+layers = [["InputLayer", {"name": "input"}],  # May specify explicitly or leave this off.
+          ["FCLayer", {"name": "fc1", "n_units": 400, "activation": "prelu_shelf", "l2": 0.001}],
+          ["DropoutLayer", {"name": "DO-fc1", "dropout_p": 0.5}],
+          ["FCLayer", {"name": "fc2", "n_units": 400, "activation": "prelu_shelf", "l2": 0.001}],
+          ["DropoutLayer", {"name": "DO-fc2", "dropout_p": 0.5}],
+          ["ClassificationOutputLayer", {"name": "output", "n_classes": 10}]]
+
+classifier = nets.NNClassifier(layers, name="MNIST MLP", rng=42)
+
+# Specify how the learning rate changes during training.
+lr_rule = {"rule": "stalled", "initial_value": 0.1, "multiply_by": 0.25, "interval": 5}
+
+# Specify how the momentum changes during training.
+momentum_rule = {"rule": "stalled", "initial_value": 0.7, "decrease_by": -0.1,
+                 "final_value": 0.95, "interval": 5}
+
+mnist_data = files.read_pickle(sample_data.mnist)
+classifier.fit(mnist_data[0], n_epochs=50, valid=mnist_data[1], test=mnist_data[2],
+               augmentation=None, checkpoint=checkpoint, sgd_type="nag",
+               lr_rule=lr_rule, momentum_rule=momentum_rule, batch_size=128,
+               train_loss="nll", valid_loss="nll", test_loss=["nll", "error"])
+```
+
+
 # Installation
 
 Clone the Arignote repository, then run
@@ -265,38 +298,6 @@ These are defined in the docstring of the `arignote.nnets.sgd_update.Rule` class
     schedule : list of ints, optional
         Alter the parameter at these set epochs.
 
-
-## Example of use
-
-The following example instantiates and trains a simple multi-layer perceptron on the MNIST data.
-
-```
-from arignote.nnets import nets
-from arignote.data import files
-from arignote import sample_data
-
-layers = [["InputLayer", {"name": "input"}],  # May specify explicitly or leave this off.
-          ["FCLayer", {"name": "fc1", "n_units": 400, "activation": "prelu_shelf", "l2": 0.001}],
-          ["DropoutLayer", {"name": "DO-fc1", "dropout_p": 0.5}],
-          ["FCLayer", {"name": "fc2", "n_units": 400, "activation": "prelu_shelf", "l2": 0.001}],
-          ["DropoutLayer", {"name": "DO-fc2", "dropout_p": 0.5}],
-          ["ClassificationOutputLayer", {"name": "output", "n_classes": 10}]]
-
-classifier = nets.NNClassifier(layers, name="MNIST MLP", rng=42)
-
-# Specify how the learning rate changes during training.
-lr_rule = {"rule": "stalled", "initial_value": 0.1, "multiply_by": 0.25, "interval": 5}
-
-# Specify how the momentum changes during training.
-momentum_rule = {"rule": "stalled", "initial_value": 0.7, "decrease_by": -0.1,
-                 "final_value": 0.95, "interval": 5}
-
-mnist_data = files.read_pickle(sample_data.mnist)
-classifier.fit(mnist_data[0], n_epochs=50, valid=mnist_data[1], test=mnist_data[2],
-               augmentation=None, checkpoint=checkpoint, sgd_type="nag",
-               lr_rule=lr_rule, momentum_rule=momentum_rule, batch_size=128,
-               train_loss="nll", valid_loss="nll", test_loss=["nll", "error"])
-```
 
 ## Credits
 
