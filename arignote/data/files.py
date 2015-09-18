@@ -1,19 +1,15 @@
-"""File interactions related to the Kaggle National Data Science Bowl competition.
+"""File interactions utilities for Arignote.
 """
 from __future__ import division, print_function
 
 from datetime import datetime
 import errno
-from glob import glob
 import gzip
 import os
 import pickle
 import sys
 import time
 
-import numpy as np
-import pandas as pd
-import theano
 import theano.tensor as T
 
 
@@ -25,10 +21,6 @@ if sys.version_info.major == 3:
     pickle_load_kwargs = {"encoding": "latin1"}
 else:
     pickle_load_kwargs = {}
-
-
-# Default location of our data.
-DATA_DIR = os.path.join(os.getenv("HOME"), "kaggle", "plankton", "competition_data")
 
 
 class CheckpointError(IOError):
@@ -104,180 +96,6 @@ def parse_checkpoint(checkpoint):
     checkpoint_fname = checkpoint_fname.split(".")[0]  # Remove filename extensions.
 
     return checkpoint_dir, checkpoint_fname
-
-
-def label_test_images(scorefile, output_file, means, stds, img_scale=63, seed=42,
-                      batch_size=128, data_dir=None):
-
-    if data_dir is None:
-        data_dir = DATA_DIR
-    if not os.path.isdir(os.path.join(data_dir, "test")):
-        raise IOError("You must have the data in a directory named {}.".
-                          format(os.path.join(data_dir, "test")))
-
-    if scorefile.endswith(".gz"):
-        compression = "gzip"
-    else:
-        compression = None
-    scores = pd.read_csv(scorefile, compression=compression, index_col="image")
-    top_one = scores.idxmax(axis=1)  # A Series with the name of the most probable class
-
-    # Use a pre-stored pickle of class names to create the output file header.
-    # Using the pickle is a hedge against new directories appearing or the class order changing.
-    class_fname = os.path.join(data_dir, "plankton_classes.pkl")
-    with open(class_fname, "rb") as fin:
-        class_list = pickle.load(fin)
-    class_dict = dict(zip(class_list, np.arange(len(class_list))))
-
-    def process_func(image, img_scale=img_scale, image_means=means, image_stds=stds):
-        return process_images([image], img_scale, means=image_means, stds=image_stds)[0]
-
-    img_x, img_y = [], []
-    data_dir = os.path.join(data_dir, "test")
-    print("Reading and processing {} test images.".format(top_one.shape[0]))
-    for fname, label in top_one.iteritems():
-        img_y.append(class_dict[label])
-        img_x.append(process_func(imread(os.path.join(data_dir, fname), as_grey=True)))
-
-    img_x = np.asarray(img_x, dtype="float32")
-    img_y = np.asarray(img_y, dtype="float32")
-
-    log.info("Shuffling images...")
-    rand = np.random.RandomState(seed=seed)
-    i_shuffle = stratified_shuffle(img_y, batch_size=batch_size, rng=rand)
-    img_x = img_x[i_shuffle]
-    img_y = img_y[i_shuffle]
-
-    log.info("Writing images to {} .".format(output_file))
-    tolerant_makedirs(os.path.split(output_file)[0])
-    with gzip.open(output_file, "wb") as fout:
-        pickle.dump((img_x, img_y, means.astype("float32"), stds.astype("float32")),
-                    fout, protocol=2)
-
-
-def score_and_save_test_data(classifier, output_filename, process_func,
-                             batch_size=128, data_dir=None, overwrite=False):
-    """Function which uses a trained classifier to find probabilities of membership for
-    each of the plankton test images, and writes the probabilities to file.
-
-    **Parameters**
-
-    * `classifier` <object>
-        An object with a `predict_proba` function.
-    * `output_filename` <string>
-        Write the class probabilities to this file.
-    * `process_func` <function>
-        Calling this function on a batch of images must return a batch of images
-        processed in exactly the same way as images used during training.
-
-    **Optional Parameters**
-
-    * `batch_size` <int|128>
-        Score this many images at once.
-    * `data_dir` <string|None>
-        Look for the "test" directory at this base directory.
-    * `overwrite` <bool|False>
-        If False, this function will raise an IOError if the `output_filename` exists.
-    """
-    # Don't overwrite an existing score file by accident.
-    if os.path.exists(output_filename) and not overwrite:
-        raise IOError("The file {} already exists. Either choose a different output "
-                      "or set `overwrite = True`.".format(output_filename))
-
-    if data_dir is None:
-        data_dir = DATA_DIR
-    if not os.path.isdir(os.path.join(data_dir, "test")):
-        raise IOError("You must have the plankton test images in a directory named {}.".
-                          format(os.path.join(data_dir, "test")))
-
-    # Use a pre-stored pickle of class names to create the output file header.
-    # Using the pickle is a hedge against new directories appearing or the class order changing.
-    class_fname = os.path.join(data_dir, "plankton_classes.pkl")
-    with open(class_fname, "rb") as fin:
-        class_list = pickle.load(fin)
-
-    opener = gzip.open if output_filename.endswith("gz") else open
-
-    # Read and score all test files.
-    all_filenames = np.sort(glob(os.path.join(data_dir, "test", "*.jpg")))
-    print("Scoring {} test images.".format(len(all_filenames)))
-    with opener(output_filename, "w") as fout:
-        fout.write("image,{}\n".format(",".join(class_list)))  # Write the header.
-        images, names = [], []
-        for i_file, fname in enumerate(all_filenames):
-            # Read each image one at a time, score it, and write to the output file.
-            images.append(imread(fname, as_grey=True))
-            names.append(fname)
-
-            # Process and write a batch of images.
-            if len(images) == batch_size:
-                images = process_func(images)
-                probs = classifier.predict_proba(images.astype(theano.config.floatX))
-                for name, prob in zip(names, probs):
-                    fout.write("{},{}\n".format(os.path.split(name)[1], ",".join(map(str, prob))))
-                images, names = [], []
-
-            if i_file % int(len(all_filenames)/10) == 0:
-                print("Wrote {:.0%} of test images.".format((i_file + 1) / len(all_filenames)))
-
-        # Write remaining images.
-        if images:
-            images = process_func(images)
-            probs = classifier.predict_proba(images.astype(theano.config.floatX))
-            for name, prob in zip(names, probs):
-                fout.write("{},{}\n".format(os.path.split(name)[1], ",".join(map(str, prob))))
-
-    print("Completed processing images. Scores written to {} .".format(output_filename))
-
-
-def ensemble_scored_files(filenames, output_filename):
-    """Take a list of filenames or a string with a wildcard pattern. Assume that each
-    is in a valid submission format as written by `score_and_save_test_data`.
-    Read the entries, average the probabilities in each row, and re-write the output to disk.
-    """
-    if not isinstance(filenames, list):
-        # Assume it's a string.
-        filenames = glob(filenames)
-
-    # Read in probabilities from each file and keep a running sum.
-    summed_probs = None
-    for fname in filenames:
-        log.info("Reading image scores from {} .".format(fname))
-        compression = "gzip" if fname.endswith("gz") else None
-
-        these_probs = pd.read_csv(fname, index_col=0, compression=compression)
-
-        if summed_probs is None:
-            summed_probs = these_probs
-        else:
-            summed_probs += these_probs
-        these_probs = None  # Don't need to keep this around, and it might be large.
-
-    # Average probabilities by dividing by the number of files.
-    summed_probs /= len(filenames)
-    log.info("Finished averaging scores.")
-
-    # Check if we need to compress the output. Always write the pandas csv uncompressed.
-    if output_filename.endswith(".gz"):
-        zip_file = True
-        output_filename = output_filename[:-3]
-        log.info("I'll write to an uncompressed file, then compress afterwards.")
-    else:
-        zip_file = False
-
-    # File output.
-    log.info("Writing ensembeled model to {} .".format(output_filename))
-    summed_probs.to_csv(output_filename, index=True, header=True)
-
-    # Compress the csv if requested, and remove the uncompressed file.
-    if zip_file:
-        log.info("Compressing file.")
-        zipped_fname = output_filename + ".gz"
-        with open(output_filename, "rb") as f_in:
-            with gzip.open(zipped_fname, "wb") as f_out:
-                f_out.writelines(f_in)
-        os.unlink(output_filename)
-        log.info("Ensembeled model written to {} .".format(zipped_fname))
 
 
 def checkpoint_write(net, trainer, filename, extra_metadata=None):
@@ -366,27 +184,6 @@ def save_model(model, filename, extra_metadata=None):
                      "params": params,
                      "param_update_rules": update_rules},
                     fout, protocol=2)  # Protocol 2 for Python 2 compatibility.
-
-
-def create_class_list(dir=None, filename_to_write="plankton_classes"):
-    if dir is None:
-        dir = DATA_DIR
-
-    # Read all of the directories in the "train" folder.
-    all_dirs = glob(os.path.join(dir, "train", "*"))
-    if len(all_dirs) != 121:
-        log.warning("I expected 121 directories, but found {}.".format(len(all_dirs)))
-
-    # Split off the last directory name.
-    all_dirs = [os.path.split(name)[1] for name in all_dirs]
-
-    # Write to disk.
-    fname = os.path.join(dir, "{}.pkl".format(filename_to_write))
-    with open(fname, "wb") as fin:
-        pickle.dump(all_dirs, fin, protocol=2)  # Protocol 2 for Python 2 compatibility
-
-    log.info("Wrote {} directory names to {}.".format(len(all_dirs), fname))
-    return all_dirs
 
 
 def restore_model(filename, model=None, input=None, **kwargs):
