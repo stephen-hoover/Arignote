@@ -1,6 +1,5 @@
 six
 pillow
 numpy
-pandas
 scikit-image
 theano

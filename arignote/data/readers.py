@@ -8,7 +8,11 @@ import six
 import threading
 
 import numpy as np
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError:
+    # No pandas; we can't read HDF5 files.
+    pd = None
 import theano
 
 from ..util import misc
@@ -339,9 +343,11 @@ def get_reader(src, labels=False):
             src = data
 
     # Turn the input into a Reader, if it isn't already.
-    if isinstance(src, (np.ndarray, pd.DataFrame)):
+    if isinstance(src, np.ndarray) or (pd is not None and isinstance(src, pd.DataFrame)):
         rdr = ArrayReader(src)
     elif ftype == "hdf":
+        if pd is None:
+            raise ImportError("`pandas` is required for HDF5 file reading.")
         # HDF5 file input. Try to infer the proper table name.
         with pd.HDFStore(src, "r") as store:
             keys = [k.strip("/") for k in store.keys()]
@@ -511,6 +517,9 @@ class HDFReader(Reader):
         * `asarray` <bool|None>: Cast outputs to arrays? Defaults to True if the rows of
             data have more than 1 dimension, and False for 1D rows.
         """
+        if pd is None:
+            raise ImportError("`pandas` is required for HDF5 file reading.")
+
         super(HDFReader, self).__init__(fname)
 
         self.color = color
