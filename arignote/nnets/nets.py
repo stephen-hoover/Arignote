@@ -517,7 +517,7 @@ class NNClassifier(object):
 
         return layer_objs
 
-    def _get_loss(self, name, targets=None, inference=False, regularized=None):
+    def get_loss(self, name, targets=None, inference=False, regularized=None):
         """Return a loss function.
 
         Parameters
@@ -549,7 +549,7 @@ class NNClassifier(object):
 
         # If we got a list as input, return a list of loss functions.
         if misc.is_listlike(name):
-            return [self._get_loss(n, targets=targets, inference=inference, regularized=regularized)
+            return [self.get_loss(n, targets=targets, inference=inference, regularized=regularized)
                     for n in name]
 
         input_name = name
